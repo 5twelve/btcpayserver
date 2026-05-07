@@ -28,7 +28,7 @@ namespace BTCPayServer.Controllers.Greenfield
             request ??= new GenerateOnChainWalletRequest();
             AssertCryptoCodeWallet(paymentMethodId, out var network, out _);
 
-            if (!_walletProvider.IsAvailable(network))
+            if (!walletProvider.IsAvailable(network))
             {
                 return this.CreateAPIError(503, "not-available",
                     $"{paymentMethodId} services are not currently available");
@@ -54,7 +54,7 @@ namespace BTCPayServer.Controllers.Greenfield
                 return this.CreateValidationError(ModelState);
             }
 
-            var client = _explorerClientProvider.GetExplorerClient(network);
+            var client = explorerClientProvider.GetExplorerClient(network);
             GenerateWalletResponse response;
             try
             {
@@ -93,11 +93,11 @@ namespace BTCPayServer.Controllers.Greenfield
 
             var store = Store;
             var storeBlob = store.GetStoreBlob();
-            var handler = _handlers[paymentMethodId];
-            store.SetPaymentMethodConfig(_handlers[paymentMethodId],
+            var handler = handlers[paymentMethodId];
+            store.SetPaymentMethodConfig(handlers[paymentMethodId],
                 derivationSchemeSettings);
             store.SetStoreBlob(storeBlob);
-            await _storeRepository.UpdateStore(store);
+            await storeRepository.UpdateStore(store);
 
             var result = new GenerateOnChainWalletResponse()
             {
@@ -106,7 +106,7 @@ namespace BTCPayServer.Controllers.Greenfield
                 Config = ((JObject)JToken.FromObject(derivationSchemeSettings, handler.Serializer.ForAPI())).ToObject<GenerateOnChainWalletResponse.ConfigData>(handler.Serializer.ForAPI())
             };
             result.Mnemonic = response.GetMnemonic();
-            _eventAggregator.Publish(new WalletChangedEvent()
+            eventAggregator.Publish(new WalletChangedEvent()
             {
                 WalletId = new WalletId(storeId, network.CryptoCode)
             });
@@ -115,7 +115,7 @@ namespace BTCPayServer.Controllers.Greenfield
 
         private async Task<WalletCreationPermissions> CanUseHotWallet()
         {
-            return await _authorizationService.CanUseHotWallet(PoliciesSettings, User);
+            return await authorizationService.CanUseHotWallet(PoliciesSettings, User);
         }
     }
 }

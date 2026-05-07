@@ -25,36 +25,19 @@ namespace BTCPayServer.Controllers.Greenfield
     [ApiController]
     [Authorize(AuthenticationSchemes = AuthenticationSchemes.Greenfield)]
     [EnableCors(CorsPolicies.All)]
-    public partial class GreenfieldStoreOnChainPaymentMethodsController : ControllerBase
+    public partial class GreenfieldStoreOnChainPaymentMethodsController(
+        StoreRepository storeRepository,
+        BTCPayWalletProvider walletProvider,
+        IAuthorizationService authorizationService,
+        ExplorerClientProvider explorerClientProvider,
+        PoliciesSettings policiesSettings,
+        PaymentMethodHandlerDictionary handlers,
+        EventAggregator eventAggregator)
+        : ControllerBase
     {
         private StoreData Store => HttpContext.GetStoreData();
 
-        public PoliciesSettings PoliciesSettings { get; }
-
-        private readonly StoreRepository _storeRepository;
-        private readonly BTCPayWalletProvider _walletProvider;
-        private readonly IAuthorizationService _authorizationService;
-        private readonly ExplorerClientProvider _explorerClientProvider;
-        private readonly PaymentMethodHandlerDictionary _handlers;
-        private readonly EventAggregator _eventAggregator;
-
-        public GreenfieldStoreOnChainPaymentMethodsController(
-            StoreRepository storeRepository,
-            BTCPayWalletProvider walletProvider,
-            IAuthorizationService authorizationService,
-            ExplorerClientProvider explorerClientProvider,
-            PoliciesSettings policiesSettings,
-            PaymentMethodHandlerDictionary handlers,
-            EventAggregator eventAggregator)
-        {
-            _storeRepository = storeRepository;
-            _walletProvider = walletProvider;
-            _authorizationService = authorizationService;
-            _explorerClientProvider = explorerClientProvider;
-            _eventAggregator = eventAggregator;
-            PoliciesSettings = policiesSettings;
-            _handlers = handlers;
-        }
+        public PoliciesSettings PoliciesSettings { get; } = policiesSettings;
 
         protected JsonHttpException ErrorPaymentMethodNotConfigured()
         {
@@ -99,8 +82,8 @@ namespace BTCPayServer.Controllers.Greenfield
             }
             AssertCryptoCodeWallet(paymentMethodId, out var network, out _);
 
-            var handler = _handlers.GetBitcoinHandler(network);
-            var ctx = new PaymentMethodConfigValidationContext(_authorizationService, ModelState, request.Config, User, Store.GetPaymentMethodConfig(paymentMethodId));
+            var handler = handlers.GetBitcoinHandler(network);
+            var ctx = new PaymentMethodConfigValidationContext(authorizationService, ModelState, request.Config, User, Store.GetPaymentMethodConfig(paymentMethodId));
             await handler.ValidatePaymentMethodConfig(ctx);
             if (ctx.MissingPermission is not null)
             {
@@ -144,10 +127,10 @@ namespace BTCPayServer.Controllers.Greenfield
 
         private void AssertCryptoCodeWallet(PaymentMethodId paymentMethodId, out BTCPayNetwork network, out BTCPayWallet wallet)
         {
-            if (!_handlers.TryGetValue(paymentMethodId, out var h) || h is not BitcoinLikePaymentHandler handler)
+            if (!handlers.TryGetValue(paymentMethodId, out var h) || h is not BitcoinLikePaymentHandler handler)
                 throw new JsonHttpException(this.CreateAPIError(404, "unknown-paymentMethodId", "This payment method id isn't set up in this BTCPay Server instance"));
             network = handler.Network;
-            wallet = _walletProvider.GetWallet(network);
+            wallet = walletProvider.GetWallet(network);
             if (wallet is null)
                 throw ErrorPaymentMethodNotConfigured();
         }
@@ -159,7 +142,7 @@ namespace BTCPayServer.Controllers.Greenfield
             settings = null;
             if (conf is (null or { Type: JTokenType.Null }))
                 return false;
-            settings = ((BitcoinLikePaymentHandler)_handlers[paymentMethodId]).ParsePaymentMethodConfig(conf);
+            settings = ((BitcoinLikePaymentHandler)handlers[paymentMethodId]).ParsePaymentMethodConfig(conf);
             return settings?.AccountDerivation is not null;
         }
     }

@@ -3,7 +3,6 @@ using System.Security.Claims;
 using System.Threading.Tasks;
 using BTCPayServer.Client;
 using BTCPayServer.Data;
-using BTCPayServer.Services;
 using BTCPayServer.Services.Invoices;
 using BTCPayServer.Services.Stores;
 using Microsoft.AspNetCore.Authorization;
