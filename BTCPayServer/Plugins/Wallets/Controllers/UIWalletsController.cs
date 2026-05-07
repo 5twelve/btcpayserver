@@ -12,6 +12,7 @@ using BTCPayServer.Abstractions.Constants;
 using BTCPayServer.Abstractions.Extensions;
 using BTCPayServer.Abstractions.Models;
 using BTCPayServer.BIP78.Sender;
+using BTCPayServer.Blazor;
 using BTCPayServer.Client;
 using BTCPayServer.Client.Models;
 using BTCPayServer.Data;
@@ -1042,9 +1043,15 @@ namespace BTCPayServer.Controllers
             WalletId walletId, WalletSendModel vm, string command = "", CancellationToken cancellation = default,
             string? bip21 = "")
         {
-            if (command == "sign" && !(await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanSignWalletTransactions)).Succeeded ||
-                command == "analyze-psbt" && !(await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanSignWalletTransactions)).Succeeded ||
-                command == "schedule" && !(await authorizationService.AuthorizeAsync(User, walletId.StoreId, Policies.CanManagePayouts)).Succeeded)
+            var required = command switch
+            {
+                "sign" => WalletPolicies.CanSignWalletTransactions,
+                "analyze-psbt" => WalletPolicies.CanSignWalletTransactions,
+                "schedule" => Policies.CanManagePayouts,
+                _ => null
+            };
+
+            if (required is not null && !(await authorizationService.AuthorizeAsync(User, walletId.StoreId, required)).Succeeded)
                 return Forbid();
             var store = await Repository.FindStore(walletId.StoreId);
             if (store == null)
@@ -1797,15 +1804,14 @@ namespace BTCPayServer.Controllers
             if (command is not ("cpfp" or "prune" or "clear"))
                 return NotFound();
 
-            var authorized = command switch
+            var required = command switch
             {
-                "cpfp" => (await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanCreateWalletTransactions)).Succeeded,
-                "prune" => (await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanManageWalletSettings)).Succeeded,
-                "clear" => User.IsInRole(Roles.ServerAdmin) &&
-                           (await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanManageWalletSettings)).Succeeded,
-                _ => false
+                "cpfp" => WalletPolicies.CanCreateWalletTransactions,
+                "prune" => WalletPolicies.CanManageWalletSettings,
+                "clear" => Policies.CanModifyServerSettings,
+                _ => null
             };
-            if (!authorized)
+            if (required is null || !(await authorizationService.AuthorizeAsync(User, walletId.StoreId, required)).Succeeded)
                 return Forbid();
 
             var derivationScheme = GetDerivationSchemeSettings(walletId);
