@@ -53,7 +53,7 @@ namespace BTCPayServer.Controllers
                 psbtDestination.SubstractFees = transactionOutput.SubtractFeesFromOutput;
             }
 
-            var pending = await _pendingTransactionService.GetPendingTransactions(network.CryptoCode, storeId ?? "");
+            var pending = await pendingTransactionService.GetPendingTransactions(network.CryptoCode, storeId ?? "");
             psbtRequest.ExcludeOutpoints = pending.SelectMany(p => p.OutpointsUsed).Select(OutPoint.Parse).ToList();
             psbtRequest.FeePreference = new FeePreference();
             if (sendModel.FeeSatoshiPerByte is decimal v and > decimal.Zero)
@@ -165,7 +165,7 @@ namespace BTCPayServer.Controllers
                 "broadcast" => WalletPolicies.CanBroadcastWalletTransactions,
                 _ => WalletPolicies.CanViewWallet
             };
-            if (!(await _authorizationService.AuthorizeAsync(User, walletId.StoreId, requiredPolicy)).Succeeded)
+            if (!(await authorizationService.AuthorizeAsync(User, walletId.StoreId, requiredPolicy)).Succeeded)
                 return Forbid();
             vm.CryptoCode = network.CryptoCode;
 
@@ -190,7 +190,7 @@ namespace BTCPayServer.Controllers
             switch (command)
             {
                 case "createpending":
-                    await _pendingTransactionService.CreatePendingTransaction(walletId.StoreId, walletId.CryptoCode, psbt, Request.GetRequestBaseUrl());
+                    await pendingTransactionService.CreatePendingTransaction(walletId.StoreId, walletId.CryptoCode, psbt, Request.GetRequestBaseUrl());
                     return RedirectToAction(nameof(WalletTransactions), new { walletId = walletId.ToString() });
                 case "sign":
                     return await WalletSign(walletId, vm);
@@ -253,12 +253,12 @@ namespace BTCPayServer.Controllers
         {
             var cloned = psbt.Clone();
             cloned = cloned.Finalize();
-            await _broadcaster.Schedule(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(2.0), cloned.ExtractTransaction(), btcPayNetwork);
+            await broadcaster.Schedule(DateTimeOffset.UtcNow + TimeSpan.FromMinutes(2.0), cloned.ExtractTransaction(), btcPayNetwork);
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(TimeSpan.FromSeconds(30));
-            var minRelayFee = _dashboard.Get(btcPayNetwork.CryptoCode).Status.BitcoinStatus?.MinRelayTxFee;
-            _payjoinClient.MinimumFeeRate = minRelayFee;
-            return await _payjoinClient.RequestPayjoin(bip21, new PayjoinWallet(derivationSchemeSettings), psbt, cts.Token);
+            var minRelayFee = dashboard.Get(btcPayNetwork.CryptoCode).Status.BitcoinStatus?.MinRelayTxFee;
+            payjoinClient.MinimumFeeRate = minRelayFee;
+            return await payjoinClient.RequestPayjoin(bip21, new PayjoinWallet(derivationSchemeSettings), psbt, cts.Token);
         }
 
         private async Task FetchTransactionDetails(WalletId walletId, DerivationSchemeSettings derivationSchemeSettings, WalletPSBTReadyViewModel vm, BTCPayNetwork network)
@@ -436,7 +436,7 @@ namespace BTCPayServer.Controllers
                 if (ix is null)
                     continue;
 
-                var labels = _labelService.CreateTransactionTagModels(ix, Request);
+                var labels = labelService.CreateTransactionTagModels(ix, Request);
                 var input = vm.Inputs.First(model => model.Index == inputToObject.Key);
                 input.Labels = labels;
             }
@@ -444,7 +444,7 @@ namespace BTCPayServer.Controllers
             {
                 if (!labelInfo.TryGetValue(outputToObject.Value.Id, out var ix))
                     continue;
-                var labels = _labelService.CreateTransactionTagModels(ix, Request);
+                var labels = labelService.CreateTransactionTagModels(ix, Request);
                 var destination = vm.Destinations.First(model => model.Destination == outputToObject.Key);
                 destination.Labels = labels;
             }
@@ -465,10 +465,10 @@ namespace BTCPayServer.Controllers
                 "broadcast" or "payjoin" => WalletPolicies.CanBroadcastWalletTransactions,
                 _ => WalletPolicies.CanViewWallet
             };
-            if (!(await _authorizationService.AuthorizeAsync(User, walletId.StoreId, requiredPolicy)).Succeeded)
+            if (!(await authorizationService.AuthorizeAsync(User, walletId.StoreId, requiredPolicy)).Succeeded)
                 return Forbid();
             if (command == "payjoin" &&
-                !(await _authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanSignWalletTransactions)).Succeeded)
+                !(await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanSignWalletTransactions)).Succeeded)
                 return Forbid();
             PSBT psbt = await vm.GetPSBT(network.NBitcoinNetwork, ModelState);
             if (vm.InvalidPSBT || psbt is null)
@@ -582,7 +582,7 @@ namespace BTCPayServer.Controllers
                             }
                             else
                             {
-                                var wallet = _walletProvider.GetWallet(network);
+                                var wallet = walletProvider.GetWallet(network);
                                 var derivationSettings = GetDerivationSchemeSettings(walletId);
                                 if (derivationSettings is not null)
                                     wallet.InvalidateCache(derivationSettings.AccountDerivation);
@@ -600,7 +600,7 @@ namespace BTCPayServer.Controllers
                         }
 
                         if (!string.IsNullOrEmpty(vm.SigningContext?.Comment) &&
-                            (await _authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanManageWalletTransactions)).Succeeded)
+                            (await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanManageWalletTransactions)).Succeeded)
                         {
                             var txObjId = new WalletObjectId(walletId, WalletObjectData.Types.Tx, transaction.GetHash().ToString());
                             await WalletRepository.SetWalletObjectComment(txObjId, vm.SigningContext.Comment);
@@ -608,7 +608,7 @@ namespace BTCPayServer.Controllers
 
                         if (vm.SigningContext.PendingTransactionId is not null)
                         {
-                            await _pendingTransactionService.Broadcasted(
+                            await pendingTransactionService.Broadcasted(
                                 GetPendingTxId(walletId, vm.SigningContext.PendingTransactionId),
                                 transaction);
                         }
@@ -670,7 +670,7 @@ namespace BTCPayServer.Controllers
         private async Task<bool> CanAutoSignWithHotWallet(WalletId walletId, DerivationSchemeSettings derivationSchemeSettings)
         {
             return derivationSchemeSettings?.IsHotWallet is true &&
-                   (await _authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanSignWalletTransactions)).Succeeded &&
+                   (await authorizationService.AuthorizeAsync(User, walletId.StoreId, WalletPolicies.CanSignWalletTransactions)).Succeeded &&
                    await CanUseHotWallet();
         }
     }
